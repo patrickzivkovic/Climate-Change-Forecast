@@ -1,0 +1,22 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+##Environment and Meteorology
+#Practice 5 & 6 - Report
+#Patrick Zivkovic
+
+Verification of a model:
+
+We discussed different ways of verifying a model. In order to test if a model does a good job, we usually divide the data that we have in training and in test data. We then train a model on the training data set and see how it performs if we apply it to the hold out test data set. There are different ways to do that: e.g. by calculating the error (least squares method,...) or in the case of classificiation problems performance ratings like accuracy, sensitivity, specificity among others. If we do this just with one split of the data set, however, we are have to consider that the model could under-, or overperform depending on the split we undertook. In order to avoid this problem we do not just split our data into a training and a test set once, but we use the method known as cross-validation to it multiple times and get an aggregated result, that is a much stronger indicator whether the model predicts well or not.
+
+Seasonal Forecast:
+
+In order to assess the performance of a seasonal forecast one prediction by one model does not suffice to make assumptions about the forecast quality. For this reason multiple models are used and a pertubation of the inicial parameters is applied to get a lot of different predictions. Those can then be used to calculate the probabilities of an event happening. Usually, in the case of predicting temperature seasonally, we divide the possible outcome into terciles ("below", "normal", "above" average). The one class that gets the most predictions by the multi-model method is then chosen for the overall forecast. We furthermore use the knowledge taken from hindcasts to optimize our forecast and to eventually give a percentage rate of the probability of any given scenario (below, normal or above) happening.
+With the respective hindcasts we are able to assign a skill level to our model (usually done with the ROCSS measure) so that we can infer from similar events of the previous years how well we can predict the future event.
+Computing different validation values and mapping them we saw that the skill for the prediction of the "2-meter-air-temperature" in a seasonal forecast for example is just sufficiently good to make predictions in the tropic region around the equator. Models that make assumptions about e.g. Europe are most of the time lacking the skill to make accurate seasonal forecasts.
+
+Fire Weather Index:
+
+Last we looked at an climate index, that is used to measure the probability of a fire breaking out. There are different types of fire indices but the one we looked at is called the "Canadian Forest Fire Weather Index" that takes into account four different atmospheric variables (temperature, relative humidity, wind and precipitation). Those variables are directly linked to the general fire activity like for example the ease of ignition and the rate of spread. Looking at one example we saw that the fire weather index does not seem to have enough skill to reliably predict fires in any way except for the east and southeast region of Europe where a ROCSS over 0.6 suggest significant skill for future prediction.

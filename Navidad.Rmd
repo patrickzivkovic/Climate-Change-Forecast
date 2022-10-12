@@ -1,0 +1,811 @@
+---
+title: "Navidad"
+output: html_document
+---
+
+---
+title: 'DATA-LAB Machine Learning y Regionalización estadística. Acceso a datos remotos a través de UDG. Aplicaciones al análisis del clima histórico y regionalización de proyecciones futuras.'
+author: "Santander Meteorology Group"
+date: "9-10 de Abril de 2019"
+
+
+### Loguearse en el UDG {#login}
+
+Lo primero antes de poder acceder a los datos de UDG es presentar nuestras credenciales, que determinan a qué bases de datos podemos acceder y en qué condiciones, de acuerdo con las diferentes políticas de acceso a datos de los datasets. Dicho acceso está controlado por el [THREDDS Administration Panel (TAP)](http://www.meteo.unican.es/udg-tap/home). Para poder presentar nuestras credenciales desde la misma sesión de R, debemos utilizar la función `loginUDG`. 
+
+***
+**NOTA sobre usuario y contraseña**: *Se asume que el alumno ya se ha registrodo como usuario del UDG antes de iniciar la práctica, y por tanto cuenta ya con una contraseña*.
+
+***
+
+
+```{r,echo=FALSE}
+library(loadeR)
+source("~/workspace/jb")
+loginUDG(username, password)
+password <- username <- NULL
+```
+```{r,eval=FALSE}
+library(loadeR)
+loginUDG(username = "pzi365", password = "")
+```
+
+### Explorando los datasets disponibles
+
+Con nuestro credenciales, podemos entrar en nuestro [home del TAP](http://www.meteo.unican.es/udg-tap/home), y ver qué datasets tenemos disponibles de acuerdo con nuestro perfil (botón `Datasets`). Además, podemos ver sus URLs, que necesitaremos posteriormente para poder leer los datos.
+
+![*Vista del home del TAP del usuario "SU91" con los datasets autorizados*](/home/juaco/workspace/COURSES/20170907_CursoVerano_ElTorco/figs/authorized_datasets.png)
+
+
+
+Si por ejemplo estamos interesados en `NCEP reanalisis1`, podemos ir a este dataset en concreto y una vez dentro buscar el enlace **OPeNDAP**, que utilizaremos posteriormente para acceder al dato. En este ejemplo, vemos que es http://meteo.unican.es/tds5/dodsC/ncepReanalysis1/ncepReanalysis1_4xDaily.ncml:
+
+![*Vista del Catálogo NCEP Reanalysis1*](/home/juaco/workspace/COURSES/20170907_CursoVerano_ElTorco/figs/OPENDAP_link.png)
+
+
+# CASO DE ESTUDIO 1: LA OSCILACIÓN DEL ATLÁNTICO NORTE Y SU INFLUENCIA EN EL CLIMA DE EUROPA
+
+## Introducción 
+Este primer caso de estudio aprenderemos a calcular un índice climático concebido para medir un patrón de variabilidad atmosférica de larga escala (la Oscilación del Atlántico Norte, o *NAO*, por sus siglas en inglés), y cómo relacionarlo de manera sencilla con el clima observado a escala regional en Europa Occidental. 
+
+### Definición de la NAO
+
+La Oscilación del Atlántico Norte (NAO, de sus siglas en inglés) constituye el patrón de variabilidad atmosférica más prominente en latitudes medias y altas del Hemisferio Norte, y tiene una influencia directa en el clima de Europa (Hurrel *et al.* 2003, Bladé *et al.* 2011, Favà *et al.* 2015...).
+
+No hay una única forma de definir la estructura espacial de la NAO y su evolución temporal. En este ejemplo vamos a considerar la definición de Hurrel (2016), empleando la primera EOF (Empirical Orthogonal Function, o el primer vector propio) tras la descomposición del campo de anomalías[^1] de la presión al nivel del mar en Componentes Principales. Para ello, vamos a considerar la NAO invernal (Diciembre-Enero-Febrero, DJF), utilizando el periodo de referencia 1951-2010 y datos procedentes del reanálisis *NCEP/NCAR reanalysis1* (NCEP, *Kalnay et al.* 1996), para un dominio de referencia que abarca la mayor parte del Atlántico Norte. 
+
+Para más detalles sobre la definición de la NAO, puede consultarse la [NCAR's Climate Data Guide](https://climatedataguide.ucar.edu/climate-data/hurrell-north-atlantic-oscillation-nao-index-pc-based).
+
+[^1]: Una anomalía se calcula como la diferencia entre un valor registrado ("la presión atmosférica media del invierno de 1984") y un valor de referencia a escala climatológica ("la presión atmosférica invernal media en el periodo 1951-2010"). Anomalías positivas indican que ese año estuvo por encima de la media, y viceversa.
+
+### Objetivo de la práctica
+
+Tomaremos como referencia las observaciones de precipitación para Europa proporcionadas por el dataset E-OBS (EOBSv15, Haylock *et al.* 2008), que es una rejilla interpolada de observaciones, y comprobaremos para un par de regiones de Europa Occidental (Norte de la Península Ibérica y SW de Escandinavia) la relación entre la NAO y la precipitación invernal.
+
+### Contenidos prácticos
+
+ 1. Lectura de datos remotos desde UDG (NCEP)
+ 2. Lectura de datos desde un servidor OPeNDAP externo (EOBS, desde el servidor del KNMI)
+ 3. Cálculo de anomalías
+ 4. Análisis de Componentes Principales
+ 5. Análisis de asociación mediante correlación
+ 6. Operaciones habituales de agregación temporal/espacial, representación de mapas, series temporales etc.
+ 
+
+## Lectura de datos de presión a nivel del mar del reanálisis NCEP
+
+```{r,echo=FALSE}
+load("~/workspace/COURSES/20170907_CursoVerano_ElTorco/data/NCEP_psl_DJF_annual_1951_2010.Rdata")
+```
+
+```{r,echo=FALSE}
+load("~/workspace/COURSES/20170907_CursoVerano_ElTorco/data/EOBS_precip_DJF_annual_1951_2010.Rdata")
+```
+
+Por las referencias anteriores, sabemos que el dominio que define la NAO comprende gran parte del Atlántico Norte, y en concreto una ventana rectangular que va desde el punto $90^\circ$ W - $20^\circ$ N, en su extremo SW hasta en el extremo NE dado por el punto $40^\circ$ E, $80^\circ$ N. Por lo tanto, definimos los argumentos `lonLim` y `latLim` del siguiente modo, usando grados decimales:
+
+```{r}
+lonLim <- c(-90,40)
+latLim <- c(20,80)
+```
+
+Para conocer más detalles del dataset (nombres de las variables, resolución temporal y espacial, unidades *etc*), utilizamos la función `dataInventory`, apuntando a la URL remota previamente anotada:
+
+```{r,echo=FALSE}
+load("~/workspace/COURSES/20170907_CursoVerano_ElTorco/data/ncep_inventory.Rdata")
+```
+
+```{r, eval}
+ncep.url <- "http://meteo.unican.es/tds5/dodsC/ncepReanalysis1/ncepReanalysis1_4xDaily.ncml"
+```
+
+```{r,eval=FALSE}
+di.ncep <- dataInventory(ncep.url)
+```
+Así, por ejemplo, podemos ver todas las variables contenidas en el conjunto de datos NCEP_reanalysis1:
+
+```{r}
+names(di.ncep)
+```
+
+En este caso, estamos interesados en la presión atmosférica a nivel del mar, designada dentro del dataset como `slp`. Para obtener más detalles de esta variable en particular:
+
+```{r}
+str(di.ncep$slp)
+```
+
+Podemos ver que la `slp` tiene una resolución temporal 6-horaria, una cobertura espacial global y que sus unidades son Pascales. Toda esta información es relevante a la hora de proceder a la lectura del dato, como veremos a continuación.
+
+Vamos a leer el dato que necesitamos exactamente para construir la NAO. Para ello, usamos una serie de argumentos para especificar la colocación exacta de los datos, tales como su dominio geográfico `lonLim = c(-90,40)` y `latLim = c(20,80)`, la estación del año (en este caso invierno, es decir `season = c(12,1,2)`) y el periodo en años (`years = 1951:2010`). Nótese que al indicar el invierno de los años 1951-2010, la función entiende que debe tomar Diciembre de 1950 y Enero-Febrero 1951 como invierno 1951, y así sucesivamente.
+
+Además, la función de lectura nos permite realizar una agregación temporal de los datos, para evitar volúmenes de datos excesivamente grandes. En este caso el dato 6-horario no resulta conveniente, y podemos obtener mediante la petición valores medios mensuales, reduciendo por tanto dramáticamente el volumen de los datos. Esto se obtiene especificando resolución diaria `time = "DD"`, y la función de agregación para obtener el dato diario `aggr.d = "mean"` y el dato mensual, obtenido a partir de la agregación del diario (`aggr.m = "mean"`).
+
+Por tanto, una vez identificada los parámetros de la petición, y habiendo realizado ya el login en UDG ([ver sección correspondiente](#login)), procedemos a la lectura con `loadGridData`:
+
+```{r,eval=FALSE}
+ncep.psl <- loadGridData(dataset = ncep.url,
+                         var = "slp",
+                         lonLim = lonLim,
+                         latLim = latLim,
+                         season = c(12,1,2),
+                         years = 1951:2010,
+                         time = "DD",
+                         aggr.d = "mean",
+                         aggr.m = "mean")
+```
+
+Este es el aspecto del campo de presión media sobre el nivel del mar para el periodo 1951-2010, que obtenemos de forma directa con la función `spatialPlot` de `visualizeR`:
+
+```{r,fig.align='center', message=FALSE,fig.cap='*Campo de presión media al nivel del mar de invieno en el Atántico Norte (1951-2010)*'}
+library(visualizeR)
+spatialPlot(climatology(ncep.psl),
+            backdrop.theme = "coastline",
+            main = "NCEP mean DJF SLP (1951-2010)",
+            rev.colors = TRUE)
+```
+
+
+## Agregación anual
+
+Los datos leídos se encuentran agregados mensualmente:
+
+```{r,eval=FALSE}
+getTimeResolution(ncep.psl)
+```
+```{r}
+## [1] "MM"
+```
+
+Sin embargo, para calcular la NAO resulta más conveniente tener valores medios agregados anualmente (es decir, un único valor promedio para cada año de la serie 1951-2010). Para ello, utilizaremos la función `aggregateGrid` de `transformeR`, indicando el argumento correspondiente a la agregación anual, indicando la función promedio: `aggr.y = list(FUN = "mean")`
+
+```{r,eval=FALSE}
+ncep.psl <- aggregateGrid(grid = ncep.psl, aggr.y = list(FUN = "mean"))
+```
+
+Comprobamos la nueva resolución temporal tras la agregación:
+
+```{r}
+getTimeResolution(ncep.psl)
+```
+
+## Índice de la NAO 
+
+Con los datos ya preparados, la NAO[^3] se calcula con dos sencillos pasos, utilizando las herramientas de transformación y análisis disponibles en `transformeR`:
+
+  1. Las anomalias se calculan con la función `localScaling`, usando los valores por defecto de todos sus argumentos opcionales[^2] :
+
+```{r,message=FALSE}
+psl.anom <- scaleGrid(grid = ncep.psl)
+```
+
+  2. Las EOFs (en este caso nos interesa únicamente la primera EOF) se calculan con la función `prinComp`. Puede además visualizarse con la función `plotEOF`:
+
+```{r,fig.align='center',fig.width=6,message=FALSE,fig.cap='*Primera EOF de la anomalía de presión al nivel del mar de invierno (1951-2010)*'}
+pca1 <- prinComp(psl.anom, n.eofs = 1)
+plotEOF(pca1, var = "psl", n.eofs = 1,
+        backdrop.theme = "countries",
+        main = "Primera EOF de la anomalía de la SLP")
+```
+
+[^2]: Ver `help("scaleGrid", package = "transformeR")` para mas detalles y ejemplos de aplicacion.
+
+[^3]: La metodología está descrita de forma detallada en la [Climate Data Guide del NCAR](https://climatedataguide.ucar.edu/climate-data/hurrell-north-atlantic-oscillation-nao-index-pc-based). 
+
+
+Las siguiente líneas de código extraen la primera Componente Principal y la representa gráficamente como una serie temporal. Éste es el índice de la NAO de referencia. Puede compararse este resultado con la NAO basada en componentes principales de Hurrel (la serie "oficial"), disponible [este enlace](https://climatedataguide.ucar.edu/sites/default/files/styles/node_lightbox_display/public/key_figures/climate_data_set/nao_pc_djf_2.gif?itok=rVOww1Wi), para comprobar su exactitud.
+
+```{r,fig.align='center',message=FALSE,fig.cap='*Serie temporal del índice de la NAO. Los puntos rojos señalan años de NAO positiva, y los puntos azules los años de NAO negativa.*'}
+nao <- PC2grid(pca1, scale = TRUE, opp = TRUE)
+nao.index.ncep <- nao[["Data"]][1,,1,1]
+years <- getYearsAsINDEX(ncep.psl)
+plot(years, nao.index.ncep, ty = 'l', ylab = "NAO Index", xlab = "year")
+grid()
+pos <- which(nao.index.ncep > 0) ## Index of positive NAO years
+neg <- setdiff(1:length(nao.index.ncep), pos) ## Index of negative NAO years
+points(years[pos], nao.index.ncep[pos], pch = 19, col = "red")
+points(years[neg], nao.index.ncep[neg], pch = 19, col = "blue")
+abline(h = 0, lty = 3)
+title(main = "PC-based NAO Index ")
+```
+
+## Lectura de datos de precipitación de E-OBS
+
+E-OBS es una rejilla interpolada de observaciones de alta resolución espacial (25 km) y temporal (diaria), que barre el periodo 1950 hasta la actualidad (2016 completo en su versión 15, que es la que utilizaremos aquí). Cuenta con varias variables en superficie (temperatura máxima y mínima, precipitación y presión al nivel del mar). 
+
+En este caso, queremos comprobar la influencia de la NAO en el clima regional en Europa. En concreto, en este ejercicio analizaremos su efecto sobre la precipitación invernal, por lo que vamos a leer datos de precipitación de E-OBS como referencia histórica.
+
+Para ello, vamos a emplear la misma función que antes. La única diferencia es que en lugar de leer los datos desde UDG, los leeremos a través del servicio OPeNDAP disponible a través del Servicio Meteorológico de los Paises Bajos (KNMI). La gran ventaja de `loadeR` es que para el usuario esto no supone ninguna diferencia en la manera de realizar la petición. Procederemos del mismo modo que anteriormente:
+
+ 1. Accedemos via web al [servidor del KNMI](http://www.ecad.eu/download/ensembles/download.php#datafiles) para localizar el enlace OPeNDAP que nos da acceso al dato. Comprobamos que la URL es la siguiente (usaremos la resolución de 50 km en lugar de la de 25): http://opendap.knmi.nl/knmi/thredds/dodsC/e-obs_0.50regular/rr_0.50deg_reg_v15.0.nc 
+ 2. Realizamos un inventario con `dataInventory` para ver las características de la variable (resolución etc.), y sobretodo su nombre.
+ 3. Leemos el dato requerio con `loadGridData`
+
+```{r,echo=FALSE}
+load("/home/juaco/workspace/COURSES/20170907_CursoVerano_ElTorco/data/eobs_inventory.Rdata")
+load("/home/juaco/workspace/COURSES/20170907_CursoVerano_ElTorco/data/EOBS_precip_DJF_annual_1951_2010.Rdata")
+```
+
+```{r,eval=FALSE}
+eobs.url <- "http://opendap.knmi.nl/knmi/thredds/dodsC/e-obs_0.50regular/rr_0.50deg_reg_v17.0.nc"
+di.eobs <- dataInventory(eobs.url)
+```
+
+```{r}
+str(di.eobs)
+```
+
+La variable precipitación se denomina "rr" en este caso (`var = "rr"`), y sus unidades son mm/día. Por lo tanto, procedemos a especificar la petición, teniendo en cuenta que nos interesa data mensual acumulado, y por lo tanto la función de agregación mensual debe ser la suma: `aggr.m = "sum"`, mientras que en este caso no es necesario especificar ninguna función de agregación diaria, porque el dato original ya es diario. Especificamos un dominio que abarque Europa Occidental `lonLim = c(-10,20)` y `latLim = c(35,70)`, considerando la misma estación (invierno, `season = c(12,1,2)`) y periodo (`years = 1951:2010`) que hemos usado para calcular la NAO:
+
+```{r,eval=FALSE}
+eobs.precip <- loadGridData(dataset = eobs.url,
+                            var = "rr",
+                            lonLim = c(-10,20),
+                            latLim = c(35,70),
+                            season = c(12,1,2),
+                            years = 1951:2010,
+                            aggr.m = "sum")
+```
+
+Al igual que anteriormente, nos interesa el dato agregado anualmente (total de precipitación acumulada en el invierno). Para ello, usamos de nuevo `aggregateGrid`, pero especificando la función suma en lugar del promedio:
+
+```{r,eval=FALSE}
+eobs.precip <- aggregateGrid(eobs.precip, aggr.y = list(FUN = "sum"))
+```
+
+
+```{r,fig.cap='*Precipitación media de invierno (1951-2010) de acuerdo con el dataset E-OBSv15 en Europa Occidental*'}
+spatialPlot(climatology(eobs.precip),
+            backdrop.theme = "countries",
+            main = "Precipitación media de invierno (1951-2010)")
+```
+
+Vamos a analizar dos regiones de la fachada Atlántica: el norte de la Península Ibérica y el extremo SW de Escandinavia. Delimitamos ambas regiones en el mapa:
+
+
+```{r,fig.cap='*Igual que la figura anterior, pero además indicando con rectángulos rojos los dominios Cantábrico (N Iberia) y SW Escandinavia, sobre los que se realizará el análisis regional.*'}
+iberia <- map.lines(lonLim = c(9,17.5), latLim = c(46.2,49.2), col = "green", lwd = 2)
+scandinavia <- map.lines(lonLim = c(4,10), latLim = c(57.5,64), col = "green", lwd = 2)
+spatialPlot(climatology(eobs.precip),
+            backdrop.theme = "countries",
+            sp.layout = list(iberia, scandinavia))
+```
+
+Nuestro objetivo es correlacionar la NAO con la precipitación de invierno en estas regiones, para comprobar si existe una asociación entre ambas y cuantificarla.
+
+## Análisis de correlación
+
+Lo primero, calculamos la precipitación observada a anomalías con `scaleGrid`.
+
+
+```{r}
+eobs.precip.anom <- scaleGrid(eobs.precip)
+```
+
+Posteriormente, extraemos el dato correspondiente a Norte de Iberia y Escandinavia. Para realizar sub-selecciones del dato a lo largo de una o varias de sus dimensiones, utilizaremos la función `subsetGrid`. Por ejemplo, para Iberia:
+
+```{r}
+eobs.tp.iberia <- subsetGrid(eobs.precip.anom, lonLim = c(-9.5,3.5), latLim = c(40,44))
+```
+Después, agregamos espacialmente, para obtener una única serie temporal de precipitación para el dominio de Iberia, con `aggregateGrid`:
+
+```{r}
+iberia.tp <- aggregateGrid(eobs.tp.iberia,
+                           aggr.lon = list(FUN = "mean", na.rm = TRUE),
+                           aggr.lat = list(FUN = "mean", na.rm = TRUE))
+```
+
+A continuación realizamos los mismo pasos para el dominio de Escandinavia:
+
+```{r}
+eobs.tp.scandinavia <- subsetGrid(eobs.precip.anom, lonLim = c(4,10), latLim = c(57.5,64))
+scandinavia.tp <- aggregateGrid(eobs.tp.scandinavia,
+                           aggr.lon = list(FUN = "mean", na.rm = TRUE),
+                           aggr.lat = list(FUN = "mean", na.rm = TRUE))
+```
+
+
+Por último, vamos a dibujar ambas series temporales (NAO y anomalías de precipitación) para Iberia, indicando el coeficiente de correlación:
+
+```{r,fig.cap='*Series temporales del Índice NAO (línea negra) y la anomalía de precipitación de invierno (estandarizada, línea roja) para el periodo 1951-2010 en el dominio Cantábrico (Norte de Iberia). Correlación de Pearson.*'}
+plot(1951:2010, nao.index.ncep, ty = "o", xlab = "year", ylab = "Standardized Value")
+lines(1951:2010, scale(iberia.tp$Data), col = "red")
+grid()
+legend("bottomleft", c("NAO", "Winter Precip Anomaly"), lty = 1, col = c("black", "red"), bty = "n")
+title(main = "Dominio de Iberia-Cantábrico")
+mtext(paste("Correlation =", round(cor(nao.index.ncep, iberia.tp$Data),3)))
+```
+
+Y lo mismo para Escandinavia:
+
+```{r,fig.cap='*Series temporales del Índice NAO (línea negra) y la anomalía de precipitación de invierno (estandarizada, línea roja) para el periodo 1951-2010 en el dominio de SW Escandinavia. Correlación de Pearson.*'}
+plot(1951:2010, nao.index.ncep, ty = "o", xlab = "year", ylab = "Standardized Value")
+lines(1951:2010, scale(scandinavia.tp$Data), col = "red")
+grid()
+legend("bottomleft", c("NAO", "Winter Precip Anomaly"), lty = 1, col = c("black", "red"), bty = "n")
+title(main = "Dominio de SW Escandinavia")
+mtext(paste("Correlation =", round(cor(nao.index.ncep, scandinavia.tp$Data),3)))
+```
+
+Comprobamos que en ambos casos, la correlación es estadísticamente significativa:
+
+```{r}
+cor.test(nao.index.ncep, iberia.tp$Data)
+cor.test(nao.index.ncep, scandinavia.tp$Data)
+```
+
+## Conclusión
+
+Esto confirma la influencia que la NAO tiene sobre el clima regional en Europa. En particular, lo hemos comprobado para la precipitación de invierno en dos regiones particularmente sensibles a las oscilaciones de la NAO.
+
+
+# CASO DE ESTUDIO 2: DOWNSCALING CON EL MÉTODO DE ANÁLOGOS Y PROYECCIONES FUTURAS
+
+## Introducción
+
+El método de análogos es una técnica algorítmica conceptualmente sencilla (se explica en la clase con más detalle), que permite la obtención de proyecciones regionalizadas para cualquier tipo de variable objetivo, sin realizar en este sentido ningún tipo de supuesto previo sobre su distribución estadística. Es por lo tanto una técnica general y computacionalmente "barata". Proporciona resultados competitivos en la mayoría de los casos al compararse con otras técnicas de machine learning más complejas, y por su propia construcción, preserva de manera óptima la estructura espacial de los datos regionalizados con respecto a las observaciones. Como contrapartida, es una técnica incapaz de extrapolar valores más allá de su espacio de aprendizaje. Esto quiere decir que el método de análogos no es capaz de predecir, por ejemplo, valores de temperatura futuros más altos que los máximos observados en la serie histórica (ver p.ej. *Bedia et al.* 2013). En este ejemplo, sin embargo, trabajaremos con precipitación, y en un periodo futuro relativamente cercano (2021-2050), por lo que este inconveniente puede ser soslayado sin que sea previsible un impacto significativo.
+
+Aplicaremos el método de análogos para obtener proyecciones futuras regionalizadas en 11 localidades de la Península Ibérica, a partir de las proyecciones producidas por un GCM del proyecto CMIP5. Como paso previo, realizaremos una primera validación del método con datos de la serie histórica proporcionados por el reanálisis. 
+
+A diferencia del caso de estudio anterior, en esta ocasión se trabaja con *dato diario*. Se realizarán agregaciones temporales con posterioridad para realizar la validación y visualización de los resultados.
+
+
+### Contenidos prácticos
+
+ 1. Lectura de datos remotos desde UDG (simulaciones de un GCM)
+ 2. Utilización del método de análogos para downscaling
+ 3. Validación sencilla de un método de downscaling
+ 4. Pre-proceso de simulaciones del GCM (rescalado, interpolación) previo a la generación de proyecciones regionalizadas
+ 5. Obtención de proyecciones futuras regionalizadas de precipitación
+ 6. Visualización de los resultados
+
+### Datos utilizados
+
+**Predictores**
+
+Utilizaremos tres predictores para la precipitación: la humedad específica en 850 mb, la presión a nivel del mar y la temperatura del aire en 850 mb. Este conjunto de predictores ha sido propuesto en estudios previos como adecuado para realizar downscaling sobre la Península Ibérica (Gutiérrez *et al.* 2013).
+
+Los datos se encuentran incluídos como datasets de ejemplo dentro de `transformeR`, por lo que no es necesario acudir al UDG para su lectura, y se encuentran ya preparados para su uso:
+
+```{r}
+data("NCEP_Iberia_hus850", "NCEP_Iberia_psl", "NCEP_Iberia_ta850", package = "transformeR")
+``` 
+
+Además, para trabajar con predictores crearemos un objeto que aglutina a todos los predictores en una única estructura espacial y temporalmente consistente. Es lo que en *climate4R* se denomina un "multiGrid":
+
+```{r}
+mg <- makeMultiGrid(NCEP_Iberia_hus850, NCEP_Iberia_psl, NCEP_Iberia_ta850)
+```
+
+Comprobamos algunas de sus características:
+
+```{r}
+getVarNames(mg)
+getGridVerticalLevels(mg)
+getGridUnits(NCEP_Iberia_ta850)
+getShape(mg)
+```
+
+**Predictando**
+
+Utilizaremos un conjunto de 11 estaciones meteorológicas en la Peninsula Ibérica, procedentes del proyecto de intercomparación [VALUE](http://www.value-cost.eu/) (Gutiérrez et *et al.* 2018). Pueden obtenerse más detalles haciendo `help("VALUE_Iberia_pr", package = "transformeR")`
+
+
+```{r}
+data("VALUE_Iberia_pr", package = "transformeR")
+spatialPlot(climatology(VALUE_Iberia_pr), backdrop.theme = "countries",
+            cuts = seq(1,8,1),
+            cex = 1.5, main = "Mean daily DJF precipitation (1983-2002)")
+```
+
+
+## Validación del método de análogos
+
+Para validar el método, dividiremos el conjunto de datos históricos utilizado como predictor en dos muestras una de calibración (*train*) y otra de validación (*test*), de modo que podamos comparar las predicciones para el periodo de test con las observaciones de referencia, y evaluar el método:
+
+```{r}
+ncep.train <- subsetGrid(mg, years = 1983:1995)
+ncep.test <- subsetGrid(mg, years = 1996:2002)
+```
+Y los mismo para las observaciones:
+
+```{r}
+obs.train <- subsetGrid(VALUE_Iberia_pr, years = 1983:1995)
+obs.test <- subsetGrid(VALUE_Iberia_pr, years = 1996:2002)
+```
+
+La función `downscale` del paquete `downscaleR` permite crear de forma sencilla el modelo de análogos, y nos devuelve un objeto similar al predictando (en este caso el objeto que contiene las 11 estaciones con datos de precipitación) pero con las predicciones del modelo para el periodo de test 1996-2002.
+
+```{r}
+library(downscaleR)
+obs.pred <- downscale(y = obs.train,
+                      x = ncep.train,
+                      newdata = ncep.test,
+                      method = "analogs")
+```
+
+Estas predicciones pueden comparase con las observaciones para ese mismo periodo 1996-2002, para evaluar la bondad del modelo a la hora de reproducir la precipitación a partir de los predictores dados. 
+
+Para ello, vamos a agregar los datos a precipitación acumulada mensual, para comprobar qué tal reproduce el modelo la precipitación mensual:
+
+```{r}
+obs.pred.monthly <- aggregateGrid(obs.pred, aggr.m = list(FUN = "sum"))
+obs.test.monthly <- aggregateGrid(obs.test, aggr.m = list(FUN = "sum"))
+```
+
+El siguiente código compara la predicción y la observación para la primera localidad (Bragança, en Portugal), representando en un gráfico los valores observados frente a los predichos y realizando un modelo de regresión simple. La $r^2$ nos servirá como métrica de evaluación de la bondad del modelo:
+
+```{r,fig.cap='*Modelo de regresión lineal entre los valores de precipitación acumulada mensual de invierno observados y predichos por el método de análogos (periodo de test 1996-2002) para la localidad de Bragança (Portugal). El periodo de calibración es 1983-1995*'}
+df <- cbind.data.frame("predicted" = obs.pred.monthly$Data[,1],
+                       "observed" = obs.test.monthly$Data[,1])
+plot(df$observed, df$predicted, ylab = "Predicho", xlab = "observado")
+grid()
+modelo.reg <- lm(predicted ~ observed, data = df)
+abline(reg = modelo.reg, col = "red")
+title(obs.pred$Metadata$name[1])
+mtext(paste("r2 =", round(summary(modelo.reg)$adj.r.squared, 2)))
+```
+
+Introducimos el código anterior en un bucle, de modo que obtengamos una visión de los resultados para todas las estaciones del dataset (11 en total):
+
+```{r,fig.width=10, fig.height=8,fig.cap='*Modelo de regresión lineal entre los valores de precipitación acumulada mensual de invierno observados y predichos por el método de análogos (periodo de test 1996-2002), para el conjunto de localidades del dataset VALUE-Iberia. El periodo de calibración es 1983-1995*'}
+n.stations <- getShape(obs.pred.monthly, "loc") 
+par(mfrow = c(3,4))
+for (i in 1:n.stations) {
+    df <- cbind.data.frame("predicted" = obs.pred.monthly$Data[,i],
+                           "observed" = obs.test.monthly$Data[,i])
+    plot(df$observed, df$predicted, ylab = "Predicho", xlab = "observado")
+    grid()
+    modelo.reg <- lm(predicted ~ observed, data = df)
+    abline(reg = modelo.reg, col = "red")
+    title(obs.pred$Metadata$name[i])
+    mtext(paste("r2 =", round(summary(modelo.reg)$adj.r.squared, 2)))
+}
+par(mfrow = c(1,1))
+```
+
+
+### Ajuste de predictores
+
+Hasta ahora hemos usado predictores "en bruto" para el ajuste del modelo de downscaling. Sin embargo, la selección de combinaciones de predictores y dominios
+geográficos óptimos para el entrenamiento constituye una fase costosa en tiempo a la hora de optimizar un determinado método. Para ilustrarlo, vamos a centrarnos en una localidad en la que el actual modelo parece poco fiable, como es el caso de Toulouse-Blagnac. Se trata de una localidad situada en el extremo nororiental del dominio geográfico considerado.
+
+¿Podría mejorarse la predicción utilizando los predictores de que disponemos pero explotando una configuración mejor?. En este caso, vamos a considerar "localmente"
+uno de los predictores (la humedad específica), mantenienod la temperatura y la presión atmosférica como hasta ahora.
+
+Existen una función específica, `prepareData` para realizar un ajuste "fino" de los conjuntos de predictores, con múltiples opciones de configuración, 
+algunas de las cuales veremos a continuación. A continuación, indicamos la humedad específica como un predictor "local", es decir, considerando sólo los puntos de rejilla en el entorno inmediato de la localidad de Toulouse-Blagnac (la octava estación del conjunto), que previamente extraemos del conjunto de estaciones:
+    
+```{r}
+obs.train.toulouse <- subsetGrid(obs.train, station.id = obs.train$Metadata$station_id[8], drop = FALSE)
+```
+
+La función prepareData tiene muchas opciones, y proporciona gran flexibilidad para el diseño de experimentos de downscaling. Este es sólo un pequeño ejemplo de cómo podemos configurar el conjunto de predictores. Para más detalles, se recomienda concultar la ayuda de la función `help("prepareData", package = "downscaleR")`, y consultar los ejemplos disponibles en la wiki de downscaleR, en la sección correspondiente.
+
+```{r}
+predictor2 <- prepareData(x = ncep.train, y = obs.train.toulouse,
+                          global.vars = c("psl", "ta@850"),
+                          local.predictors = list(vars = "hus@850", n = 4))
+```
+
+Se procede al ajuste del modelo una vez configurado el conjunto de entrenamiento:
+
+```{r}
+analog2 <- downscale.train(predictor2, method = "analogs", n.analogs = 1)
+```
+
+Del mismo modo, se configuran los datos a predecir mediante la función `prepareNewData`:
+
+```{r}
+newdata2 <- prepareNewData(newdata = ncep.test,  data.structure = predictor2)
+```
+
+Y se efectúan las predicciones sobre el conjunto de test:
+
+```{r}
+pred2  <- downscale.predict(newdata2, analog2)
+```
+
+A continuación agregamos mensualmente el dato de precipitación diaria predicho y agrupamos los datos en un `data.frame` como hicimos anteriormente:
+
+```{r}
+obs.pred2.monthly <- aggregateGrid(pred2, aggr.m = list(FUN = "sum"))
+df2 <- cbind.data.frame("predicted1" = obs.pred.monthly$Data[,8],
+                       "predicted2" = obs.pred2.monthly$Data[,1],
+                       "observed" = obs.test.monthly$Data[,8])
+```
+
+Por último, dibijamos el resultado de las nuevas predciiones junto con el obtenido anteriormente con el conjunto de predictores no optimizado:
+
+```{r}
+plot(df2$observed, df2$predicted1, ylab = "Predicho", xlab = "observado", xlim = c(0,100), ylim = c(0,120), asp = 1)
+points(df2$observed, df2$predicted2, col = "blue")
+modelo.reg <- lm(predicted1 ~ observed, data = df2)
+modelo.reg2 <- lm(predicted2 ~ observed, data = df2)
+abline(reg = modelo.reg)
+abline(reg = modelo.reg2, col = "blue")
+title(obs.pred$Metadata$name[i])
+mtext(side = 3, adj = 0, paste("r2 =", round(summary(modelo.reg)$adj.r.squared, 2)))
+mtext(side = 3, adj = 1, paste("r2 =", round(summary(modelo.reg2)$adj.r.squared, 2)), col = "blue")
+legend("bottomright", col = c("black", "blue"), c("Predictores \'globales\'", "Predictores locales"), lty = 1)
+```
+
+
+En este ejemplo se aprecia que la inclusión de la humedad específica como predictor local mejora ostensiblemente el modelo en esta localidad concreta.
+
+
+***
+
+
+A la luz de estos resultados, parece que el método de análogos es capaz de reproducir de manera bastante aceptable el patrón de precipitación a partir de los predictores dados. Algunas estaciones producen resultados malos (p. ej. Toulouse, Tortosa o Palma de Mallorca), pero otras muestran una buena asociación entre observaciones y predicciones. Parece por lo tanto razonable realizar proyecciones futuras, al menos para aquellas localizaciones donde el método funciona bien. Emplearemos para ello un GCM del proyecto de intercomparación CMIP5. En concreto, y como ejemplo, emplearemos datos del modelo MPI-ESM-MR, considerando un escenario de emisión moderado (RCP 4.5) para el periodo 2021-2050.
+
+## Lectura de datos del GCM (escenario histórico)
+
+En el UDG se encuentran datos de un buen número de GCMs de CMIP5. Además de las variables en superficie típicamente utilizadas en estudios de impacto (temperatura, precipitación, viento etc.), existen almacenadas una serie de variables en niveles superiores de la atmósfera típicamente utilizadas como predictores en experimentos de downscaling como el de este ejemplo.
+
+Tras visitar el TAP, podemos comprobar la URL de la base de datos que contiene los datos de este GCM. Necesitaremos los predictores tanto en el periodo de calibración (1983-2002), como en el periodo futuro sobre el que queremos realizar las proyecciones (2021-2050):
+
+```{r,eval=FALSE}
+# URL de la simulación histórica:
+mpi.hist <- "http://meteo.unican.es/tds5/dodsC/cmip5/MPI-M/MPI-ESM-MR/historical/day/mpi-m_mpi-esm-mr_historical_r1i1p1.ncml"
+
+# URL de la simulación futura RCP 4.5.:
+mpi <- "http://meteo.unican.es/tds5/dodsC/cmip5/MPI-M/MPI-ESM-MR/rcp45/day/mpi-m_mpi-esm-mr_rcp45_r1i1p1.ncml"
+```
+
+Como siempre, realizamos un inventario para comprobar la disponibilidad de variables y su nomenclatura:
+
+```{r,eval=FALSE}
+di.mpi.hist <- dataInventory(mpi.hist)
+```
+```{r,echo=FALSE}
+load("/home/juaco/workspace/COURSES/20170907_CursoVerano_ElTorco/data/mpi_hist_inventory.Rdata")
+```
+
+```{r}
+names(di.mpi.hist)
+```
+
+Contiene 14 variables. Nos interesan en concreto los predictores que hemos utilizado antes: `hus850`, `psl` y `ta850`. Vemos que algunas variables tienen muchos niveles verticales, por ejemplo la humedad específica:
+
+```{r}
+str(di.mpi.hist$hus)
+```
+
+Para leer un nivel específico (850 mb, o en este caso el equivalente, 85000 Pa), debemos indicar el nivel seguido del símbolo "@" tras el nombre de la variable. Es decir, en este caso `var = hus@85000`. Por lo tanto, leemos esta variable para el dominio de Iberia y el periodo de calibración considerado:
+
+```{r,eval=FALSE}
+mpi.hus850.train <- loadGridData(dataset = mpi.hist,
+                                 var = "hus@85000",
+                                 lonLim = c(-10,5),
+                                 latLim = c(35,45),
+                                 season = c(12,1,2),
+                                 years = 1983:2002)
+```
+
+Además, será necesario interpolar el dato, para que se encuentre en la misma rejilla que los predictores de NCEP. Para ello, utilizaremos la función `interpGrid` de `transformeR`, y utilizaremos el método de vecinos cercanos (`method = "nearest"`) para la interpolación:
+
+```{r, eval=FALSE}
+mpi.hus850.train <- interpGrid(mpi.hus850.train,
+                               method = "nearest",
+                               new.coordinates = getGrid(NCEP_Iberia_hus850))
+```
+
+
+Ídem para los predictores restantes, es decir presión al nuivel del mar (`var = "slp"`) y temperature del aire en 850 mb (`var = ta@85000`). Nótese el uso del operador `%>%` para concatenar el paso de lectura con `loadGridData` y el de interpolación con `interpGrid`, que es análogo a realizar los dos pasos anteriores. Dicho operador se encuentra disponible a través del paquete `magrittr`:
+
+```{r,message=FALSE}
+library(magrittr)
+```
+
+ Lectura de `psl`:
+
+```{r,eval=FALSE}
+mpi.psl.train <- loadGridData(dataset = mpi.hist,
+                              var = "psl",
+                              lonLim = c(-10,5),
+                              latLim = c(35,45),
+                              season = c(12,1,2),
+                              years = 1983:2002) %>% interpGrid(new.coordinates = getGrid(NCEP_Iberia_hus850))
+```
+
+Y lectura de `ta850`:
+
+```{r,eval=FALSE}
+mpi.ta850.train <- loadGridData(dataset = mpi.hist,
+                                var = "ta@85000",
+                                lonLim = c(-10,5),
+                                latLim = c(35,45),
+                                season = c(12,1,2),
+                                years = 1983:2002) %>% interpGrid(new.coordinates = getGrid(NCEP_Iberia_hus850)) 
+```
+
+<!--
+***
+**NOTA sobre la armonización de variables**: *Por último, cabe destacar que las unidades de `ta850` del GCM son Kelvin (K), mientras que las del reanálisis son grados centígrados ($^\circ$C). Existe la opción de crear diccionarios para armonizar las variables y hacer que la lectura con `loadGridData` produzca siempre las salidas en las mismas unidades con un mismo nombre estándar para todas las variables. Esto se consigue creando los llamados diccionarios. Una lista de las variables estándar, sus unidades y nomenclatura, se muestra automáticamente al introducir la llamada `loadeR::UDG.vocabulary()`. Aunque en este ejemplo no nos detendremos a ver esta opción, pueden consultarse todos los detalles en [este enlace](https://github.com/SantanderMetGroup/loadeR/wiki/Harmonization).*  
+
+***
+
+En este caso, dado que no hemos usado diccionario, debemos convertir las unidades tras el proceso de lectura. El paquete [convertR](https://github.com/SantanderMetGroup/convertR), perteneciente a climate4R,  lo hace fácilmente utilizando para ello el software UD Units.
+
+
+
+```{r,eval=FALSE,echo=FALSE}
+library(convertR)
+getGridUnits(mpi.ta850.train) # Kelvin
+mpi.ta850.train <- udConvertGrid(mpi.ta850.train, new.units = "degC")
+getGridUnits(mpi.ta850.train) # degrees Celsius
+```
+-->
+
+Por último, crearemos un `multiGrid` como en el paso anterior, mediante la función `makeMultiGrid`. Además, modificaremos el metadato para asegurar que los nombres de las variables de NCEP y del GCM son idénticos:
+
+```{r, echo=FALSE}
+# load("/home/juaco/workspace/COURSES/20170907_CursoVerano_ElTorco/data/MPI_predictors.Rdata", verbose = TRUE)
+load("MPI_predictors.Rdata")
+# save(mg.mpi.train, file = "MPI_predictors.Rdata")
+```
+
+
+```{r,eval=FALSE}
+mg.mpi.train <- makeMultiGrid(mpi.hus850.train, mpi.psl.train, mpi.ta850.train)
+mg.mpi.train$Variable$varName <- c("hus", "psl", "ta")
+mg.mpi.train$Variable$level <- c(850, NA, 850)
+```
+
+## Lectura de datos del GCM (escenario futuro, RCP 4.5.)
+
+```{r,eval=FALSE}
+# Lectura
+mpi.hus850 <- loadGridData(dataset = mpi,
+                           var = "hus@85000",
+                           lonLim = c(-10,5),
+                           latLim = c(35,45),
+                           years = 2021:2050,
+                           season = c(12,1,2)) %>% interpGrid(new.coordinates = getGrid(NCEP_Iberia_hus850))
+```
+ 
+Ídem para las variables restantes, tal y como hicimos en la sección anterior:
+
+```{r,eval=FALSE}
+mpi.psl <- loadGridData(dataset = mpi,
+                        var = "psl",
+                        lonLim = c(-10,5),
+                        latLim = c(35,45),
+                        years = 2021:2050,
+                        season = c(12,1,2)) %>% interpGrid(new.coordinates = getGrid(NCEP_Iberia_hus850))
+```
+
+Nótese para temperatura el paso adicional de paso de Kelvin a grados Celsius:
+
+```{r,eval=FALSE}
+mpi.ta850 <- loadGridData(dataset = mpi,
+                          var = "ta@85000",
+                          lonLim = c(-10,5),
+                          latLim = c(35,45),
+                          years = 2021:2050,
+                          season = c(12,1,2)) %>% interpGrid(new.coordinates = getGrid(NCEP_Iberia_hus850))
+```
+
+De nuevo, construimos el `multiGrid` con los datos futuros para realizar las predicciones, y la modificación de atributos:
+
+```{r,eval=FALSE}
+library(transformeR)
+mg.mpi <- makeMultiGrid(mpi.hus850, mpi.psl, mpi.ta850)
+mg.mpi$Variable$varName <- c("hus", "psl", "ta")
+mg.mpi$Variable$level <- c(850, NA, 850)
+```
+
+```{r,echo=FALSE,eval=FALSE}
+getVarNames(mg.mpi)
+getGridUnits(mg.mpi)
+```
+
+
+```{r,echo=FALSE}
+# OLD, doen't work anymore --# load("/home/juaco/workspace/COURSES/20170907_CursoVerano_ElTorco/data/MPI_newdata.Rdata")
+#load("/home/juaco/workspace/COURSES/20170907_CursoVerano_ElTorco/data/MPI_newdata.Rdata", verbose = TRUE)
+load("MPI_newdata.Rdata", verbose = T)
+# save(mg.mpi, file = "MPI_newdata.Rdata")
+```
+
+```{r}
+# mg.mpi.train <- makeMultiGrid(mpi.hus850.train, mpi.psl.train, mpi.ta850.train)
+# mg.mpi$Variable$varName <- c("hus", "psl", "ta")
+# mg.mpi$Variable$level <- c(850, NA, 850)
+```
+
+
+## Obtención de las proyecciones futuras regionalizadas
+
+En esta sección aplicaremos los análogos aprendidos en el periodo de calibración para obtener proyecciones regionalizadas de cambio climático. Para ello, un paso necesario es el rescalado de los datos del GCM, para adecuarlos a la media de los datos de entrenamiento (en este caso el reanálisis). Dado que esta transformación se produce *gridbox a gridbox*, se trata de un rescalado "local". La función `localScaling` cuenta con diversas opciones de rescalado. En este caso, a la simulación futura del GCM (2021-2050, `grid = mg.mpi`) se le resta la media de los datos de calibración (NCEP 1983-2002, `base = mg`) y se le suma la media de la simulación histórica del GCM para el mismo periodo de calibración (`ref = mg.mpi.train`). Esta operación se realiza por bloeuqes mensuales en este caso, especificando la opción `time.frame = "monthly"`.
+
+```{r}
+newdata <- scaleGrid(grid = mg.mpi,
+                     base = mg,
+                     ref = mg.mpi.train,
+                     time.frame = "monthly")
+```
+
+Tras el rescalado, los datos ya están listos para realizar las predicciones. Éstos pasan al argumento `newdata` de la función `downscale`:
+
+```{r}
+precip.projection <- downscale(y = VALUE_Iberia_pr,
+                               x = mg,
+                               newdata = newdata,
+                               method = "analogs")
+```
+
+Una vez realizadas las predicciones, existe una multitud de procedimientos de análisis, dependiendo del interés de cada estudio. En este caso, para dar una idea general de las proyecciones de precipitación dadas por este GCM en particular, analizaremos la distribución observada y futura de la precipitacinó en cada una de las localidades analizadas. Para ello primero agregamos las proyecciones y las observaciones como valores acumulados mensuales con `aggregateGrid`:
+
+
+```{r}
+monthly.projection <- aggregateGrid(precip.projection, aggr.m = list(FUN = "sum"))
+monthly.observation <- aggregateGrid(VALUE_Iberia_pr, aggr.m = list(FUN = "sum"))
+```
+
+Y representamos gráficamente las funciones de densidad de probabilidad (PDFs) de la observación (negro) y la proyección (rojo):
+
+```{r,fig.width=10,fig.height=8,fig.cap='*Función de densidad de probabilidad de la precipitación acumulada mensual de invierno para las observaciones (1983-2002, línea negra) y las proyecciones regionalizadas mediante el método de análogos (2021-2050, línea roja)*'}
+par(mfrow = c(3,4))
+for (i in 1:n.stations) {
+    plot(density(monthly.observation$Data[,i], na.rm = TRUE),
+         main = obs.pred$Metadata$name[i],
+         xlab = "Precip amount (mm/month)")
+    grid()
+    lines(density(monthly.projection$Data[,i], na.rm = TRUE), col = "red")
+}
+par(mfrow = c(1,1))
+```
+
+Otra forma habitual de representar las proyecciones es a través de mapas de anomalías. En este caso, calculamos la climatología observada del periodo de referencia (1983-2002) y la climatología resultante de aplicar el método de análogos con las proyecciones del GCM para el periodo futuro (2021-2050)
+
+```{r}
+# Usamos el operador %>% para concatenar la agregación anual y el cálculo de la climatología
+future <- aggregateGrid(monthly.projection, aggr.y = list(FUN = "sum")) %>% climatology()
+baseline <- aggregateGrid(monthly.observation, aggr.y = list(FUN = "sum")) %>% climatology()
+# creamos en objeto delta para guardar las anomalias:
+delta <- future
+delta$Data <- future$Data - baseline$Data
+```
+
+Para representar las anomalías guardadas en el objeto `delta`, utilizaremos la función `spatialPlot` y una serie de parámetros gráficos para ajustar el mapa:
+
+```{r,fig.cap='*Anomalías de precipitación de invierno (mm) proyectadas para el periodo 2021-2050 para las localidades del dataset VALUE-Iberia*'}
+spatialPlot(delta,
+            backdrop.theme = "countries",
+            cex = 2,
+            cuts = seq(-100,100,25),
+            set.max = 100,
+            col.regions = colorRampPalette(c("blue","grey","red"))(8))
+```
+
+
+## Conclusión
+
+Como vemos, en líneas generales el modelo MPI-ESM-MR proyecta anomalías positivas de precipitación invernal sobre la Península Ibérica, aunque el método de downscaling no tiene la misma fiabilidad en todas las estaciones analizadas.
+
+
+
+
+# REFERENCIAS
+
+ * Bedia, J., Golding, N., Casanueva, A., Iturbide, M., Buontempo, C., Gutiérrez, J.M., 2017. Seasonal predictions of Fire Weather Index: Paving the way for their operational applicability in Mediterranean Europe. Climate Services. doi:10.1016/j.cliser.2017.04.001
+ * Bedia, J., Herrera, S., San-Martín, D., Koutsias, N., Gutiérrez, J.M., 2013. Robust projections of Fire Weather Index in the Mediterranean using statistical downscaling. Clim. Change 120, 229–247. doi:10.1007/s10584-013-0787-3
+ * Bladé, I., Liebmann, B., Fortuny, D., Oldenborgh, G.J. van, 2011. Observed and simulated impacts of the summer NAO in Europe: implications for projected drying in the Mediterranean region. Clim Dyn 39, 709–727. doi:10.1007/s00382-011-1195-x
+ * Cofiño, A.S., Bedia, J., Iturbide, M., Vega, M., Herrera, S., Fernández, J., Frías, M.D., Manzanas, R., Gutiérrez, J.M., 2017. The ECOMS User Data Gateway: Towards seasonal forecast data provision and research reproducibility in the era of Climate Services. Climate Services. doi:10.1016/j.cliser.2017.07.001
+ * Favà, V., Curto, J.J., Llasat, M.C., 2015. Relationship between the summer NAO and maximum temperatures for the Iberian Peninsula. Theor Appl Climatol 1–15. doi:10.1007/s00704-015-1547-2
+ * Gutiérrez, J.M., San-Martín, D., Brands, S., Manzanas, R., Herrera, S., 2013. Reassessing Statistical downscaling techniques for their robust application under climate change conditions. Journal of Climate 26, 171-188. doi:10.1175/JCLI-D-11-00687.1
+ * Gutiérrez, J.M., Maraun, D., Widmann, M., Huth, R., Hertig, E., Benestad, R., Roessler, O., Wibig, J., Wilcke, R., Kotlarski, S., San Martín, D., Herrera, S., Bedia, J., Casanueva, A., Manzanas, R., Iturbide, M., Vrac, M., Dubrovsky, M., Ribalaygua, J., Pórtoles, J., Räty, O., Räisänen, J., Hingray, B., Raynaud, D., Casado, M.J., Ramos, P., Zerenner, T., Turco, M., Bosshard, T., Štěpánek, P., Bartholy, J., Pongracz, R., Keller, D.E., Fischer, A.M., Cardoso, R.M., Soares, P.M.M., Czernecki, B., Pagé, C., 2018. An intercomparison of a large ensemble of statistical downscaling methods over Europe: Results from the VALUE perfect predictor cross-validation experiment. International Journal of Climatology. https://doi.org/10.1002/joc.5462
+ * Haylock, M.R., Hofstra, N., Klein Tank, A.M.G., Klok, E.J., Jones, P.D., New, M., 2008. A European daily high-resolution gridded data set of surface temperature and precipitation for 1950–2006. Journal of Geophysical Research 113. doi:10.1029/2008JD010201
+ * Hurrell, J.W., 2016. The Climate Data Guide: Hurrell North Atlantic Oscillation (NAO) Index (PC-based) [WWW Document]. URL https://climatedataguide.ucar.edu/climate-data/hurrell-north-atlantic-oscillation-nao-index-pc-based (accessed 11.1.16).
+ * Hurrell, J.W., Kushnir, Y., Ottersen, G., Visbeck, M., 2003. An overview of the North Atlantic Oscillation, in: Hurrell, J.W., Kushnir, Y., Ottersen, G., Visbeck, M. (Eds.), Geophysical Monograph Series. American Geophysical Union, Washington, D. C., pp. 1–35.
+ * Kalnay, E., Kanamitsu, M., Kistler, R., Collins, W., Deaven, D., Gandin, L., Iredell, M., Saha, S., White, G., Woollen, J., Zhu, Y., Leetmaa, A., Reynolds, R., Chelliah, M., Ebisuzaki, W., Higgins, W., Janowiak, J., Mo, K.C., Ropelewski, C., Wang, J., Jenne, R., Joseph, D., 1996. The NCEP/NCAR 40-Year Reanalysis Project. Bulletin of the American Meteorological Society 77, 437–471. doi:10.1175/1520-0477(1996)077<0437:TNYRP>2.0.CO;2
+ * Wickham, H. and Chang, W. (2016). devtools: Tools to Make Developing R Packages Easier. R package version 1.12.0. https://CRAN.R-project.org/package=devtools
+
+
+
+# INFORMACIÓN DE LA SESIÓN
+
+```{r}
+print(sessionInfo(package = c("loadeR", "transformeR", "downscaleR")))
+```

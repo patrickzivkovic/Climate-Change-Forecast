@@ -1,0 +1,251 @@
+---
+title: "Ejercicio 2"
+output: html_document
+---
+
+##Environment and Meteorology
+#Patrick Zivkovic
+#Practice 3 - Report
+
+In this lab we focused on the NAO index (North Atlantic Oscillation). The NAO is considered to have a large impact on the climate in Europe. The NAO is defined as the first empirical orthogonal function (EOF) of observed wintertime North Atlantic pressure at sea level.
+After calculating the NAO we proceeded to calculate the precipitation over Europe from an EOBS dataset. We then went on to calculate the correlation for these two variables for two parts of Europe with a lot of precipitation in the winter months (Iberia and Scandinavia).
+Both correlations turned out to be significant, what further strenghtened the theory that the NAO has a strong impact on the precipitation, especially along the coastline of Europe.
+
+#Exercise 2
+For this exercise I chose to take a look on the NAOs effect on precipitation in my home country Austria. It being deeper inside the continent, I do not expect such big effects as we have seen in the cases of Scandinavia or the Iberian penninsula. 
+
+First we load the packages provided by the climate4R work-group.
+```{r}
+library(loadeR)
+library(transformeR)
+library(visualizeR)
+library(downscaleR)
+library(climate4R.climdex)
+```
+
+We take the Reanalysis data from 1951-2010 to calculate the NAO index futher down the line.
+```{r, eval}
+ncep.url <- "http://meteo.unican.es/tds5/dodsC/ncepReanalysis1/ncepReanalysis1_4xDaily.ncml"
+```
+
+We load the data considering the variable "sea-level pressure(slp)" with which we are able to calculate the NAO and take a closer look at the winter months (12,1,2). Because this data provides slp at a rate of 6 hours we need to aggregate the data in the way to get first daily data (using the mean) and then monthly data in the next chunk of code even annual data (again using the mean for the aggregation).
+```{r,eval=FALSE}
+ncep.psl <- loadGridData(dataset = ncep.url,
+                         var = "slp",
+                         lonLim = lonLim,
+                         latLim = latLim,
+                         season = c(12,1,2),
+                         years = 1951:2010,
+                         time = "DD",
+                         aggr.d = "mean",
+                         aggr.m = "mean")
+```
+
+```{r,eval=FALSE}
+ncep.psl <- aggregateGrid(grid = ncep.psl, aggr.y = list(FUN = "mean"))
+```
+
+To use the principal component analyis effectively (means to be able to take the first component as the one we are interested in and not the second one) we need to calculate the anomaly of the mean of the aggregated slp data.
+```{r,message=FALSE}
+psl.anom <- scaleGrid(grid = ncep.psl)
+```
+
+Using the principal component analysis and plotting the anomally we see the expected output of the slp pressure being lower in the north atlantic and higher at the latitude levels of central Europe and northern Africa.
+```{r}
+pca1 <- prinComp(psl.anom, n.eofs = 1)
+plotEOF(pca1, var = "psl", n.eofs = 1,
+        backdrop.theme = "countries",
+        main = "Primera EOF de la anomalía de la SLP")
+```
+Looking at the now calculated NAO index based on the principal component analysis we can plot the years combined with the index of the corresponding year the generally positive NAO index from 1950-1980 and then the generally negative NAO index until 2010 where we got a peek of observed NAO index values.
+```{r}
+nao <- PC2grid(pca1, scale = TRUE, opp = TRUE)
+nao.index.ncep <- nao[["Data"]][1,,1,1]
+years <- getYearsAsINDEX(ncep.psl)
+plot(years, nao.index.ncep, ty = 'l', ylab = "NAO Index", xlab = "year")
+grid()
+pos <- which(nao.index.ncep > 0) ## Index of positive NAO years
+neg <- setdiff(1:length(nao.index.ncep), pos) ## Index of negative NAO years
+points(years[pos], nao.index.ncep[pos], pch = 19, col = "red")
+points(years[neg], nao.index.ncep[neg], pch = 19, col = "blue")
+abline(h = 0, lty = 3)
+title(main = "PC-based NAO Index ")
+```
+
+
+To analyze the effect of the NAO on the precipitation we load an EOBS dataset of the same period of time taking again just the winter season (12,1,2).
+```{r,eval=FALSE}
+eobs.url <- "http://opendap.knmi.nl/knmi/thredds/dodsC/e-obs_0.50regular/rr_0.50deg_reg_v17.0.nc"
+```
+
+```{r,eval=FALSE}
+eobs.precip <- loadGridData(dataset = eobs.url,
+                            var = "rr",
+                            lonLim = c(-10,20),
+                            latLim = c(35,70),
+                            season = c(12,1,2),
+                            years = 1951:2010,
+                            aggr.m = "sum")
+```
+
+Instead of the mean function we use the sum function to aggregate the data of precipitation, because we are interested in the total amount of precipitation over a year.
+```{r,eval=FALSE}
+eobs.precip <- aggregateGrid(eobs.precip, aggr.y = list(FUN = "sum"))
+```
+
+Plotting it we can see that Austria generally does not show a lot of precipitation over the winter months.
+```{r}
+spatialPlot(climatology(eobs.precip),
+            backdrop.theme = "countries",
+            main = "Precipitación media de invierno (1951-2010)")
+```
+
+Finding out the coordinated of the grid of Austria I painted the rectangle encompassing the Austrian region for further analysis.
+```{r}
+austria <- map.lines(lonLim = c(9,17.5), latLim = c(46.2,49.2), col = "green", lwd = 2)
+spatialPlot(climatology(eobs.precip),
+            backdrop.theme = "countries",
+            sp.layout = list(austria))
+```
+
+To be able to compare the NAO with the precipitation we need to also calculate the precipitation anomally over Europe.
+```{r}
+eobs.precip.anom <- scaleGrid(eobs.precip)
+```
+
+Being interested only in Austria we can just select a certain region using the function 
+subsetGrid.
+```{r}
+eobs.tp.austria <- subsetGrid(eobs.precip.anom, lonLim = c(9,17.5), latLim = c(46.2,49.2))
+```
+
+```{r}
+austria.tp <- aggregateGrid(eobs.tp.austria,
+                           aggr.lon = list(FUN = "mean", na.rm = TRUE),
+                           aggr.lat = list(FUN = "mean", na.rm = TRUE))
+```
+
+Plotting the anomalies against each other we do not really see any consistent concurrencies.
+```{r}
+plot(1951:2010, nao.index.ncep, ty = "o", xlab = "year", ylab = "Standardized Value")
+lines(1951:2010, scale(austria.tp$Data), col = "red")
+grid()
+legend("bottomleft", c("NAO", "Winter Precip Anomaly"), lty = 1, col = c("black", "red"), bty = "n")
+title(main = "Domain of Austria")
+mtext(paste("Correlation =", round(cor(nao.index.ncep, austria.tp$Data),3)))
+```
+
+Finally calculating the correlation coefficient by Pearson we see a value of approximately 0.24 with a non significant t-test indicating no significant connection between these two variables (just as expected).
+```{r}
+cor.test(nao.index.ncep, austria.tp$Data)
+```
+
+#################################################################################
+After establishing that there is no connection between the NAO index and the precipitation in Austria, I asked myself the question if the summer North Atlantic Oscillation (SNAO) maybe has an impact on the same. This SNAO is defined as the first empirical orthogonal function (EOF) of observed summertime North Atlantic pressure at sea level just like its winter counterpart for the wintertime respectively.
+So the following code is basically the same with changes in the data loading (taking the summer months instead of the winter ones).
+
+```{r,eval=FALSE}
+ncep.psl_summer <- loadGridData(dataset = ncep.url,
+                         var = "slp",
+                         lonLim = lonLim,
+                         latLim = latLim,
+                         season = c(6,7,8),
+                         years = 1951:2010,
+                         time = "DD",
+                         aggr.d = "mean",
+                         aggr.m = "mean")
+```
+
+```{r,eval=FALSE}
+ncep.psl_summer <- aggregateGrid(grid = ncep.psl_summer, aggr.y = list(FUN = "mean"))
+```
+
+```{r,message=FALSE}
+psl.anom_summer <- scaleGrid(grid = ncep.psl_summer)
+```
+
+```{r}
+pca1_summer <- prinComp(psl.anom_summer, n.eofs = 1)
+plotEOF(pca1_summer, var = "psl", n.eofs = 1,
+        backdrop.theme = "countries",
+        main = "Primera EOF de la anomalía de la SLP")
+```
+
+```{r}
+nao <- PC2grid(pca1_summer, scale = TRUE, opp = TRUE)
+nao.index.ncep_summer <- nao[["Data"]][1,,1,1]
+years <- getYearsAsINDEX(ncep.psl_summer)
+plot(years, nao.index.ncep_summer, ty = 'l', ylab = "NAO Index", xlab = "year")
+grid()
+pos <- which(nao.index.ncep_summer > 0) ## Index of positive NAO years
+neg <- setdiff(1:length(nao.index.ncep_summer), pos) ## Index of negative NAO years
+points(years[pos], nao.index.ncep_summer[pos], pch = 19, col = "red")
+points(years[neg], nao.index.ncep_summer[neg], pch = 19, col = "blue")
+abline(h = 0, lty = 3)
+title(main = "PC-based SNAO Index ")
+```
+
+
+To analyze the effect of the SNAO on the precipitation we load an EOBS dataset of the same period of time taking again just the summer season (6,7,8).
+```{r,eval=FALSE}
+eobs.url <- "http://opendap.knmi.nl/knmi/thredds/dodsC/e-obs_0.50regular/rr_0.50deg_reg_v17.0.nc"
+```
+
+```{r,eval=FALSE}
+eobs.precip_summer <- loadGridData(dataset = eobs.url,
+                            var = "rr",
+                            lonLim = c(-10,20),
+                            latLim = c(35,70),
+                            season = c(6,7,8),
+                            years = 1951:2010,
+                            aggr.m = "sum")
+```
+
+```{r,eval=FALSE}
+eobs.precip_summer <- aggregateGrid(eobs.precip_summer, aggr.y = list(FUN = "sum"))
+```
+
+Plotting it we can see that large parts of Austria generally show a lot of precipitation over the summer months.
+```{r}
+spatialPlot(climatology(eobs.precip_summer),
+            backdrop.theme = "countries",
+            main = "Precipitación media de verano (1951-2010)")
+```
+
+```{r}
+austria <- map.lines(lonLim = c(9,17.5), latLim = c(46.2,49.2), col = "green", lwd = 2)
+spatialPlot(climatology(eobs.precip_summer),
+            backdrop.theme = "countries",
+            sp.layout = list(austria))
+```
+
+To be able to compare the NAO with the precipitation we need to also calculate the precipitation anomally over Europe.
+```{r}
+eobs.precip.anom_summer <- scaleGrid(eobs.precip_summer)
+```
+
+```{r}
+eobs.tp.austria_summer <- subsetGrid(eobs.precip.anom_summer, lonLim = c(9,17.5), latLim = c(46.2,49.2))
+```
+
+```{r}
+austria.tp_summer <- aggregateGrid(eobs.tp.austria_summer,
+                           aggr.lon = list(FUN = "mean", na.rm = TRUE),
+                           aggr.lat = list(FUN = "mean", na.rm = TRUE))
+```
+
+```{r}
+plot(1951:2010, nao.index.ncep_summer, ty = "o", xlab = "year", ylab = "Standardized Value")
+lines(1951:2010, scale(austria.tp_summer$Data), col = "red")
+grid()
+legend("bottomleft", c("SNAO", "Summer Precip Anomaly"), lty = 1, col = c("black", "red"), bty = "n")
+title(main = "Domain of Austria")
+mtext(paste("Correlation =", round(cor(nao.index.ncep_summer, austria.tp_summer$Data),3)))
+```
+
+Finally calculating the correlation coefficient by Pearson we see a value of approximately 0.457 with a significant t-test (p = 0.0002) indicating a significant connection between these two variables.
+```{r}
+cor.test(nao.index.ncep_summer, austria.tp_summer$Data)
+```
+
+In conclusion, the NAO index does not seem to affect the precipitation in Austria over the winter months. But as soon as I took a look at the SNAO in connection with the precipitation in the summer months, there seems to be a significant connection, further advancing the idea that the NAO/SNAO take a huge role in the states of climate across Europe.

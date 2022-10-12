@@ -1,0 +1,67 @@
+---
+title: "Exercise 1"
+output: html_document
+---
+
+##Environment and Meteorology
+#Practice 1 - Report
+
+In the first practice we familiarized ourselves with the climate4R framework for R working on an example (presented in the paper `climate4R: An R-based Open Framework for Reproducible Climate Data Access and Post-processing'). In this example we wanted to compute a climate index called SU - defined as the number of days over a time period in which the maximum temperature reached over 25 degrees celsius. We then proceeded to compare this index of a historical dataset and the RCP 8.5 future prediction model using the "delta"-method to compare these two. As expected we saw a drastical increase in summer days for the future predicted dataset.
+Along the way we saw that there are challenges in importing the data and learned about a couple of big data providers that work in an open source way. Working with data from different providers we also encountered the need to for example interpolate in order to match the longitude and the latitude coordinates to make the data spatially comparable. Another issue we came across was the bias in the model data. By visualizing we saw that the model consistently underestimates the number of summer days but shows the right general tendency. Using the climate4R function biasCorrection we handled this problem and proceeded to make assumptions about the output.
+
+#Exercise 1
+Patrick Zivkovic
+
+In this exercise we want to compare historical data (1951-2005) of the maximum temperature of summer with future data (2081-2100), which is predicted by the RCP 8.5. model. We want to calculate the delta (difference between these two temperatures) for the whole European region and display them graphically all with the help of the climate4R package.
+
+First we load the packages provided by the climate4R work-group.
+```{r}
+library(knitr)
+library(loadeR)
+library(transformeR)
+library(visualizeR)
+library(downscaleR)
+library(climate4R.climdex)
+```
+
+Because the big data for the daily temperature of all the weather stations is mostly saved
+in more than one file (in this case the data is bundled in 5 year chunks), we have to aggregate all of these files into one dataset, which the function "makeAggregatedDataset" does for us.
+```{r}
+makeAggregatedDataset(source.dir = "Simulaciones/tasmax_historical/tasmax",
+                      "hist.ncml")
+makeAggregatedDataset(source.dir = "Simulaciones/tasmax_rcp85/tasmax",
+                      "future.ncml")
+```
+
+With the function loadGridData we take the instructions created by the makeAggregatedDataset function (using an .ncml file) and select the variables and the seasons we want to incorporate into our dataset. In this case we take the variable "tasmax" (maximum temperature) and only the summer months 6:8 (June - August). 
+```{r}
+tx_hist <- loadGridData(dataset = "hist.ncml",
+                        var = "tasmax", 
+                        season = 6:8)
+tx_future <- loadGridData(dataset = "future.ncml",
+                          var = "tasmax",
+                          season = 6:8)
+```
+
+With the function "climatology" we can calculate the values for all the latitude and longitude combinations of our data. So in this case we calculate all the maximum temperatures for all the weather stations on the grid.
+```{r}
+clim_hist <- climatology(tx_hist)
+clim_future <- climatology(tx_future)
+```
+
+To visualize this data created by the climatology function we use the "spatialPlot" function.
+This now plots the maximum temperature of the different weather stations over the historical dataset and the future dataset and colour-codes it.
+```{r}
+spatialPlot(clim_hist, rev.colors = TRUE, scales=list(draw=TRUE), at = seq(270,320,5))
+spatialPlot(clim_future, rev.colors = TRUE, scales=list(draw=TRUE), at = seq(270,320,5))
+```
+
+Using the "gridArithmetics" function we can calculate the difference between the two climatologies (delta) and also visualize it. 
+We observe some anomalies around the borders of the plot which is expected by using these functions and can be neglected. 
+Another very interesting observation is the drastic rise in maximum temperature in the alps. This fact is one, that all of the climate change predictions and research agree on. The mountains are the ones most affected by global warming.
+```{r}
+delta <- gridArithmetics(clim_future,clim_hist,operator = "-")
+clim_delta <- climatology(delta)
+spatialPlot(clim_delta, rev.colors = TRUE, scales=list(draw=TRUE), at = seq(0,8,0.5))
+```
+

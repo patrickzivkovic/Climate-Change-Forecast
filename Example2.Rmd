@@ -1,0 +1,61 @@
+---
+title: "Example2"
+output: html_document
+---
+
+Following the guide of the moodle
+
+```{r}
+library(knitr)
+library(loadeR)
+library(transformeR)
+library(visualizeR)
+library(downscaleR)
+library(climate4R.climdex)
+```
+
+```{r}
+ncep.url <- "http://meteo.unican.es/tds5/dodsC/ncepReanalysis1/ncepReanalysis1_4xDaily.ncml"
+```
+
+```{r}
+lonLim <- c(-90,40)
+latLim <- c(20,80)
+```
+
+```{r}
+eobs.url <- "http://opendap.knmi.nl/knmi/thredds/dodsC/e-obs_0.50regular/rr_0.50deg_reg_v17.0.nc"
+di.eobs <- dataInventory(eobs.url)
+```
+```{r}
+eobs.precip <- loadGridData(dataset = eobs.url,
+                            var = "rr",
+                            lonLim = c(-10,20),
+                            latLim = c(35,70),
+                            season = c(12,1,2),
+                            years = 1951:2010,
+                            aggr.m = "sum")
+```
+
+```{r}
+eobs.precip <- aggregateGrid(eobs.precip, aggr.y = list(FUN = "sum"))
+```
+
+```{r}
+spatialPlot(climatology(eobs.precip),
+            backdrop.theme = "countries",
+            main = "Precipitación media de invierno (1951-2010)")
+```
+
+```{r}
+iberia <- map.lines(lonLim = c(-9.5,0), latLim = c(42,44), col = "green", lwd = 2)
+scandinavia <- map.lines(lonLim = c(4,10), latLim = c(57.5,64), col = "green", lwd = 2)
+spatialPlot(climatology(eobs.precip),
+            backdrop.theme = "countries",
+            sp.layout = list(iberia, scandinavia))
+```
+
+```{r}
+eobs.precip.anom <- scaleGrid(eobs.precip)
+```
+

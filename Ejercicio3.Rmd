@@ -1,0 +1,134 @@
+---
+title: "Ejercicio 3"
+output: html_document
+---
+##Downscaling Statistics
+#Meteorology
+#Patrick Zivkovic
+
+First we load the packages provided by the climate4R work-group.
+```{r}
+library(knitr)
+library(loadeR)
+library(transformeR)
+library(visualizeR)
+library(downscaleR)
+library(climate4R.climdex)
+```
+
+Selecing the predictands from the observational dataset Value_Iberia, being the precipitation (pr) and the Temperature at sea level (tas). We choose to go with the precipitation as y.
+```{r}
+data("VALUE_Iberia_pr","VALUE_Iberia_tas")
+y <- VALUE_Iberia_pr
+```
+
+Selecting the predictors x from the NCEP_Iberia reanalysis dataset, being pressure at sea level (psl), temperature at 850mb (tas850) and specific humidity at 850mb (hus850).
+```{r}
+data("NCEP_Iberia_hus850", "NCEP_Iberia_psl", "NCEP_Iberia_ta850")
+x <- makeMultiGrid(NCEP_Iberia_hus850, NCEP_Iberia_psl, NCEP_Iberia_ta850)
+x <- scaleGrid(x, type = "standardize", spatial.frame = "field") 
+```
+
+To visualize the data we plot two climatologies. The first one showing the predictand y in the different stations across the Iberian penninsula and the second one shows our three predictors. 
+```{r}
+spatialPlot(climatology(y), backdrop.theme = "countries",
+            cuts = seq(1,8,1),
+            cex = 1.5, main = "Mean daily DJF precipitation (1983-2002)")
+spatialPlot(climatology(x), backdrop.theme = "countries")
+```
+
+We divide the historic data in a training and a test set.
+```{r}
+ncep.train <- subsetGrid(x, years = 1983:1995)
+ncep.test <- subsetGrid(x, years = 1996:2002)
+```
+
+We do the same for the observational data.
+```{r}
+obs.train <- subsetGrid(y, years = 1983:1995)
+obs.test <- subsetGrid(y, years = 1996:2002)
+```
+
+Now we use the training data to create an analog model to then try to predict new data (the held out test data) with it.
+```{r}
+obs.pred <- downscale(y = obs.train,
+                      x = ncep.train,
+                      newdata = ncep.test,
+                      method = "analogs")
+```
+
+Here we aggregate the data to a monthly format using the sum function for the precipitation.
+```{r}
+obs.pred.monthly <- aggregateGrid(obs.pred, aggr.m = list(FUN = "sum"))
+obs.test.monthly <- aggregateGrid(obs.test, aggr.m = list(FUN = "sum"))
+```
+
+A plot shows the accuracy of prediction of the model on the test data for the fourth weather station Malaga. An Rsquared value of .67 shows a good predictability.
+```{r}
+df <- cbind.data.frame("predicted" = obs.pred.monthly$Data[,4],
+                       "observed" = obs.test.monthly$Data[,4])
+plot(df$observed, df$predicted, ylab = "Predicted", xlab = "Observed")
+grid()
+modelo.reg <- lm(predicted ~ observed, data = df)
+abline(reg = modelo.reg, col = "red")
+title(obs.pred$Metadata$name[4])
+mtext(paste("r2 =", round(summary(modelo.reg)$adj.r.squared, 2)))
+```
+
+In order to prepare the data for a different configuration of global/local predictors we take a subset of just the data from the Malaga station.
+```{r}
+obs.train.malaga <- subsetGrid(obs.train, station.id = obs.train$Metadata$station_id[4], drop = FALSE)
+```
+
+Now we prepare the data to be used to train the statistical downscaling model. For the global variables we choose ta850 and psl and in the subsequently performed principal component analysis we choose to retain at least 95% of the variance for both variables. Also we choose one local predictor being hus850 and use also the 4 nearest neighbor points (n=4).
+```{r}
+predictor2 <- prepareData(x = ncep.train, y = obs.train.malaga,
+                          global.vars = c("ta@850","psl"),
+                          spatial.predictors = list(v.exp = c(.95,.95)),
+                          local.predictors = list(vars = c("hus@850"), n = 4))
+```
+
+Now we use the analog method to train our model with the new preditor configuration.
+```{r}
+analog2 <- downscale.train(predictor2, method = "analogs", n.analogs = 1)
+```
+
+In this step we prepare our test data, which we want to attempt to predict.
+```{r}
+newdata2 <- prepareNewData(newdata = ncep.test,  data.structure = predictor2)
+```
+
+Now we attempt the prediction with the new predictor configuration.
+```{r}
+pred2  <- downscale.predict(newdata2, analog2)
+```
+
+Aggregating the data again and making a dataframe out of our two prediction attempts using two different predictor configurations and the actually observed data.
+```{r}
+obs.pred2.monthly <- aggregateGrid(pred2, aggr.m = list(FUN = "sum"))
+df2 <- cbind.data.frame("predicted1" = obs.pred.monthly$Data[,4],
+                       "predicted2" = obs.pred2.monthly$Data[,1],
+                       "observed" = obs.test.monthly$Data[,4])
+```
+
+We can see that by changing the specific humidity predictor to a local level, we can achieve much better prediction results on the test data than by just using the three predictors on global level.
+The r2 score goes up from 0.67 to 0.89 which is impressive.
+```{r}
+plot(df2$observed, df2$predicted1, ylab = "Predicted", xlab = "Observed", xlim = c(0,100), ylim = c(0,120), asp = 1)
+points(df2$observed, df2$predicted2, col = "blue")
+modelo.reg <- lm(predicted1 ~ observed, data = df2)
+modelo.reg2 <- lm(predicted2 ~ observed, data = df2)
+abline(reg = modelo.reg)
+abline(reg = modelo.reg2, col = "blue")
+title(obs.pred$Metadata$name[4])
+mtext(side = 3, adj = 0, paste("r2 =", round(summary(modelo.reg)$adj.r.squared, 2)))
+mtext(side = 3, adj = 1, paste("r2 =", round(summary(modelo.reg2)$adj.r.squared, 2)), col = "blue")
+legend("bottomright", col = c("black", "blue"), c("Global Predictors", "Local Predictors"), lty = 1)
+```
+
+#Conclusion
+
+Playing around with the predictor compositions seems to be a difficult and time consuming process. For example I also tried to add the sea level pressure as a local predictor to the specific humidity only leaving the temperature as a global predictor (r2 = 0.72), which was still better than the "all global predictor" approach but significantly worse than just using the specific humidity as a local predictor. Or in another example, I tried to only use sea level pressure pressure as a local predictor which gave me even worse results than the "all global" approach (r2 = 0.63).
+Compared to the example in class, we also succeded to lift the predictabilty up by a huge amount just by playing around with the predictor configuration. This shows the importance of taking the time and trying out different comopostions of predictors on different levels to get the best possible model.
+
+
