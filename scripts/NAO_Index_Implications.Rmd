@@ -1,5 +1,5 @@
 ---
-title: "NAO_Index"
+title: "NAO_Index_Implications"
 output: html_document
 ---
 
@@ -11,7 +11,6 @@ In this lab we focused on the NAO index (North Atlantic Oscillation). The NAO is
 After calculating the NAO we proceeded to calculate the precipitation over Europe from an EOBS dataset. We then went on to calculate the correlation for these two variables for two parts of Europe with a lot of precipitation in the winter months (Iberia and Scandinavia).
 Both correlations turned out to be significant, what further strenghtened the theory that the NAO has a strong impact on the precipitation, especially along the coastline of Europe.
 
-#Exercise 2
 For this exercise I chose to take a look on the NAOs effect on precipitation in my home country Austria. It being deeper inside the continent, I do not expect such big effects as we have seen in the cases of Scandinavia or the Iberian penninsula. 
 
 First we load the packages provided by the climate4R work-group.
