@@ -1,10 +1,10 @@
 ---
-title: "Untitled"
+title: "Model Verification"
 output: html_document
 ---
 
 ##Environment and Meteorology
-#Practice 5 & 6 - Report
+#Discussion on climate forecast model building and the Fire Weather Index
 #Patrick Zivkovic
 
 Verification of a model:

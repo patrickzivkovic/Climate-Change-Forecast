@@ -1,5 +1,4 @@
 # Environment and Meteorology
-# Exercise 1
 # Patrick Zivkovic
 
 # In this exercise we want to compare historical data of the maximum temperature of summer
@@ -13,15 +12,15 @@ library(visualizeR)
 library(downscaleR)
 library(climate4R.climdex)
 
-makeAggregatedDataset(source.dir = "Simulaciones/tasmax_historical/tasmax",
+makeAggregatedDataset(source.dir = "data/Simulaciones/tasmax_historical/tasmax",
                       "hist.ncml")
-makeAggregatedDataset(source.dir = "Simulaciones/tasmax_rcp85/tasmax",
+makeAggregatedDataset(source.dir = "data/Simulaciones/tasmax_rcp85/tasmax",
                       "future.ncml")
 
-tx_hist <- loadGridData(dataset = "hist.ncml",
+tx_hist <- loadGridData(dataset = "data/hist.ncml",
                         var = "tasmax", 
                         season = 6:8)
-tx_future <- loadGridData(dataset = "future.ncml",
+tx_future <- loadGridData(dataset = "data/future.ncml",
                           var = "tasmax",
                           season = 6:8)
 

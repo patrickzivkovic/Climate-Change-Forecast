@@ -1,11 +1,11 @@
 ---
-title: "Ejercicio 2"
+title: "NAO_Index"
 output: html_document
 ---
 
 ##Environment and Meteorology
+#NAO Index effect on the precipitation in Austria
 #Patrick Zivkovic
-#Practice 3 - Report
 
 In this lab we focused on the NAO index (North Atlantic Oscillation). The NAO is considered to have a large impact on the climate in Europe. The NAO is defined as the first empirical orthogonal function (EOF) of observed wintertime North Atlantic pressure at sea level.
 After calculating the NAO we proceeded to calculate the precipitation over Europe from an EOBS dataset. We then went on to calculate the correlation for these two variables for two parts of Europe with a lot of precipitation in the winter months (Iberia and Scandinavia).

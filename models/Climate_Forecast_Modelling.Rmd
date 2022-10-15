@@ -1,8 +1,8 @@
 ---
-title: "Ejercicio 3"
+title: "Climate Forecast Modelling"
 output: html_document
 ---
-##Downscaling Statistics
+##Climate Forecast after downscaling of dataset
 #Meteorology
 #Patrick Zivkovic
 
@@ -129,6 +129,6 @@ legend("bottomright", col = c("black", "blue"), c("Global Predictors", "Local Pr
 #Conclusion
 
 Playing around with the predictor compositions seems to be a difficult and time consuming process. For example I also tried to add the sea level pressure as a local predictor to the specific humidity only leaving the temperature as a global predictor (r2 = 0.72), which was still better than the "all global predictor" approach but significantly worse than just using the specific humidity as a local predictor. Or in another example, I tried to only use sea level pressure pressure as a local predictor which gave me even worse results than the "all global" approach (r2 = 0.63).
-Compared to the example in class, we also succeded to lift the predictabilty up by a huge amount just by playing around with the predictor configuration. This shows the importance of taking the time and trying out different comopostions of predictors on different levels to get the best possible model.
+We also succeded to lift the predictabilty up by a huge amount just by playing around with the predictor configuration. This shows the importance of taking the time and trying out different comopostions of predictors on different levels to get the best possible model.
 
 
